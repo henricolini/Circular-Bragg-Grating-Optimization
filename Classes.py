@@ -20,32 +20,42 @@ import csv
 
 C = 299792458  # Speed of light
 
+
 class Universal_Design:
-    def __init__(self, filenameFDTD,filenameFDE, target_wavelength, local, run, username, host, fixed_parameters, launch, material_name):
+    def __init__(self, filenameFDTD,filenameFDE, target_wavelength, dipole_height, local, run, username, host, fixed_parameters, launch, material_name,holes):
         self.filename_FDTD = filenameFDTD
         self.filename_FDE= filenameFDE
         self.local = local
         self.run = run
         self.material_name=material_name
+        self.dipole_height=dipole_height
+        self.holes=holes
+        
         self.weight_purcell = 0.5
         self.weight_collection = 0.5
         self.max_purcell = 3
         self.max_collection = 1
         self.all_scores=[]
         
+        self.change_in_param = 0.5
+        self.change_in_ring = 2
+        
         # Default parameters
         self.parameters = {
-            "height_cavity": 0.3e-6,
-            "height_substract": 0.209e-6,
-            "n_rings": 5,
-            "radius_mesa": 0.448e-6,
-            "ring_period": 0.448e-6,
-            "duty_cycle": 0.68,
-            "material": material_name
-        }
+            "height_cavity": 352.73e-9,
+            "height_substrate": 0.210e-6,
+            "n_rings": 4,
+            "radius_mesa": 444.31e-9,
+            "ring_period": 417.98e-9,
+            "duty_cycle": 0.725,
+            "material": material_name,
+            "hole_diameter":0.135e-6 ,
+            "spacing": 0.210e-6 
+            }
         
         self.target_wavelength = target_wavelength
         self.step_wavelength = 0.100e-6
+        self.step_universal = 0.1e-6
         self.wavelengths = (
             self.target_wavelength,
             self.target_wavelength - self.step_wavelength,
@@ -89,7 +99,7 @@ class Universal_Design:
         fde.setnamed("cavity", "material", self.parameters["material"])
         
         # Set the height of the substrate layer
-        fde.setnamed("substract", "h_sio2", self.parameters["height_substract"])
+        fde.setnamed("substrate", "h_sio2", self.parameters["height_substrate"])
         
         # Set parameters for FDE region
         fde.setnamed("FDE","solver type",2);
@@ -97,9 +107,17 @@ class Universal_Design:
         fde.setnamed("FDE","x span",2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])) + 1e-6);
         fde.setnamed("FDE","z",0);
         fde.setnamed("FDE","z max",self.parameters["height_cavity"]+0.1e-6);
-        fde.setnamed("FDE","z min", -(self.parameters["height_substract"] + 0.15e-6));
+        fde.setnamed("FDE","z min", -(self.parameters["height_substrate"] + 0.15e-6));
         fde.setnamed("FDE","y",0);
         
+        try:
+            fde.setnamed("layer", "z", self.dipole_height-0.001e-6)
+            fde.setnamed("layer", "r_ring", self.parameters["ring_period"])
+            fde.setnamed("layer", "r_circle", self.parameters["radius_mesa"])
+            fde.setnamed("layer", "duty_cycle", self.parameters["duty_cycle"])
+            fde.setnamed("layer", "n_rings", self.parameters["n_rings"])
+        except:
+            pass
         # Set the number of trial modes for the mode solver
         fde.setnamed("FDE", "number of trial modes", num_modes)  # Define how many modes to search for
         
@@ -128,37 +146,70 @@ class Universal_Design:
             fde.save()
             fde.close()
             return None
-    def run_simulation_FDTD(self, accuracy=1, bayesian=False, profile=1):
+    def run_simulation_FDTD(self, accuracy=1, universal=False, bayesian=False, profile=1):
         fdtd = lumapi.FDTD(filename=self.filename_FDTD)
         fdtd.switchtolayout()
         
-        h_source = self.parameters["height_cavity"] / 2
+        h_source = self.dipole_height
         
-        # Set simulation parameters
-        fdtd.setnamed("cavity", "height", self.parameters["height_cavity"])
-        fdtd.setnamed("cavity", "r_ring", self.parameters["ring_period"])
-        fdtd.setnamed("cavity", "r_circle", self.parameters["radius_mesa"])
-        fdtd.setnamed("cavity", "duty_cycle", self.parameters["duty_cycle"])
-        fdtd.setnamed("cavity", "n_rings", self.parameters["n_rings"])
-        fdtd.setnamed("cavity", "material", self.parameters["material"])
-        fdtd.setnamed("substract", "h_sio2", self.parameters["height_substract"])
+        try:
+            # Set simulation parameters without holes
+            fdtd.setnamed("cavity", "height", self.parameters["height_cavity"])
+            fdtd.setnamed("cavity", "r_ring", self.parameters["ring_period"])
+            fdtd.setnamed("cavity", "r_circle", self.parameters["radius_mesa"])
+            fdtd.setnamed("cavity", "duty_cycle", self.parameters["duty_cycle"])
+            fdtd.setnamed("cavity", "n_rings", self.parameters["n_rings"])
+            fdtd.setnamed("cavity", "material", self.parameters["material"])
+        except:
+            pass
+        try:
+            # Set simulation parameters with holes
+            fdtd.setnamed("cavity", "height", self.parameters["height_cavity"])
+            fdtd.setnamed("cavity", "ring_period", self.parameters["ring_period"])
+            fdtd.setnamed("cavity", "radius_mesa", self.parameters["radius_mesa"])
+            fdtd.setnamed("cavity", "n_rings", self.parameters["n_rings"])
+            fdtd.setnamed("cavity", "material", self.parameters["material"])
+            fdtd.setnamed("cavity", "hole_diameter", self.parameters["hole_diameter"])
+            fdtd.setnamed("cavity", "spacing", self.parameters["spacing"])
+        except:
+            pass
+        try:
+            fdtd.setnamed("layer", "z", h_source-0.001e-6)
+            fdtd.setnamed("layer", "r_ring", self.parameters["ring_period"])
+            fdtd.setnamed("layer", "r_circle", self.parameters["radius_mesa"])
+            fdtd.setnamed("layer", "duty_cycle", self.parameters["duty_cycle"])
+            fdtd.setnamed("layer", "n_rings", self.parameters["n_rings"])
+        except:
+            pass
+        
+        fdtd.setnamed("substrate", "h_sio2", self.parameters["height_substrate"])
+        
         fdtd.setnamed("source", "z", h_source)
+        
         fdtd.setnamed("FDTD", "x span", 2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])) + 1e-6)
         fdtd.setnamed("FDTD", "y span", 2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])) + 1e-6)
-        fdtd.setnamed("FDTD", "z min", -(self.parameters["height_substract"] + 0.15e-6))
+        fdtd.setnamed("FDTD", "z min", -(self.parameters["height_substrate"] + 0.15e-6))
         fdtd.setnamed("FDTD", "z max", (self.parameters["height_cavity"] + 0.5e-6))
+        fdtd.setnamed("FDTD", "mesh accuracy", accuracy)
+        fdtd.setnamed("FDTD", "pml profile", profile)
+        
         fdtd.setnamed("analysis group", "z", h_source) #+ 1e-9)
         fdtd.setnamed("analysis group", "x_span_prof",2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])))
         fdtd.setnamed("analysis group", "y_span_prof", 2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])))
-        fdtd.setnamed("FDTD", "mesh accuracy", accuracy)
-        fdtd.setnamed("FDTD", "pml profile", profile)
-        fdtd.setnamed("source", "wavelength start", self.wavelengths[1])
-        fdtd.setnamed("source", "wavelength stop", self.wavelengths[2])
-        fdtd.setglobalsource("wavelength start",self.wavelengths[1]);
-        fdtd.setglobalsource("wavelength stop",self.wavelengths[2]);
+        
+        if universal is True:
+            fdtd.setnamed("source", "wavelength start", self.target_wavelength-self.step_universal)
+            fdtd.setnamed("source", "wavelength stop", self.target_wavelength+self.step_universal)
+            fdtd.setglobalsource("wavelength start",self.target_wavelength-self.step_universal)
+            fdtd.setglobalsource("wavelength stop",self.target_wavelength+self.step_universal)
+        else:
+            fdtd.setnamed("source", "wavelength start", self.wavelengths[1])
+            fdtd.setnamed("source", "wavelength stop", self.wavelengths[2])
+            fdtd.setglobalsource("wavelength start",self.wavelengths[1])
+            fdtd.setglobalsource("wavelength stop",self.wavelengths[2])
         
         
-        
+        # Runs the simularion
         if self.run:
             if not self.local:
                 fdtd.save()
@@ -169,10 +220,11 @@ class Universal_Design:
             else:
                 fdtd.run()
             
+            # checks if the simulation has diverged and if so it launches a new simulation with stabilized profile. It has a tradeoff of taking more time
             if fdtd.simulationdiverged() == 1 and profile == 1:
                 fdtd.close()
                 print("Warning: Fields diverging. Retrying with stabilized profile.")
-                return Universal_Design.run_simulation_FDTD(self, bayesian=bayesian, profile=2)
+                return Universal_Design.run_simulation_FDTD(self, accuracy=accuracy, universal=universal, bayesian=bayesian, profile=2)
             
             if fdtd.simulationdiverged() == 1 and profile == 2:
                 fdtd.close()
@@ -181,7 +233,8 @@ class Universal_Design:
                     return 0, 0, 0
                 else:
                     return 0, 0, 0, 0
-            
+          
+        #gets the results and saves the files
             if bayesian is False:
                 return self.get_results(fdtd)
             else:
@@ -191,15 +244,19 @@ class Universal_Design:
             fdtd.close()
 
     def get_results(self, fdtd):
+        
+        # receives the data of the analysis group
         purcell_factor = fdtd.getresult("analysis group", "T")
         collection_eff = fdtd.getresult("analysis group", "collection_efficiency_50x_data")
-        substract_material = fdtd.getnamed("substract", "material")
-        #cavity_material = fdtd.getnamed("cavity", "material")
         
+        # saves the material name of the substrate
+        substrate_material = fdtd.getnamed("substrate", "material")
         
+           
         # Extract wavelength data (assuming the first column contains the wavelength)
         wavelengths = purcell_factor["lambda"]  # Extract wavelength in meters
         wavelengths_nm=wavelengths*1e-9
+        
         # Extract Purcell factor and collection efficiency data
         purcell_values = purcell_factor["Purcell"]  # Extract Purcell factor
         collection_values = collection_eff["Collection Efficiency"]  # Extract collection efficiency
@@ -231,22 +288,23 @@ class Universal_Design:
         max_index = np.argmax(purcell_values)
         current_wavelength = wavelengths[max_index]
         
+        # gets the real and imaginary part of the refractive index of the cavity and substrate for the current and target wavelength
         real_index_current_cavity=np.real(fdtd.getindex(self.material_name,C/current_wavelength))
         real_index_target_cavity=np.real(fdtd.getindex(self.material_name,C/self.target_wavelength))
-        real_index_current_substract=np.real(fdtd.getindex(substract_material,C/current_wavelength))
-        real_index_target_substract=np.real(fdtd.getindex(substract_material,C/self.target_wavelength))
+        real_index_current_substrate=np.real(fdtd.getindex(substrate_material,C/current_wavelength))
+        real_index_target_substrate=np.real(fdtd.getindex(substrate_material,C/self.target_wavelength))
         fdtd.close()
         
+        #prints results of the simulation
         print("\n===== Final Simulation Results =====")
         print(f"Final Resonance Wavelength: {current_wavelength[0]*1e9} nm")
         print(f"Maximum Purcell Factor: {purcell_values[max_index]}")
         print(f"Collection Efficiency at Resonance: {collection_values[max_index]}")
 
         
-        return current_wavelength[0], purcell_values[max_index] , collection_values[max_index], [real_index_current_cavity,real_index_current_substract,real_index_target_cavity,real_index_target_substract]
+        return current_wavelength[0], purcell_values[max_index] , collection_values[max_index], [real_index_current_cavity,real_index_current_substrate,real_index_target_cavity,real_index_target_substrate]
   
     def get_results_bayesian(self, fdtd):
-        seen = 0
         # Track statistics for max-score normalization
         purcell_values = []
         collection_values = []
@@ -275,73 +333,81 @@ class Universal_Design:
         purcell_values.append(purcell_value)
         collection_values.append(collection_value)
         
-        # Check if the new Purcell value exceeds the max and update
-        if purcell_value > self.max_purcell:
-            self.max_purcell = purcell_value
-            seen = 1
+        # # Check if the new Purcell value exceeds the max and update
+        # if purcell_value > self.max_purcell:
+        #     self.max_purcell = purcell_value
+        #     seen = 1
 
-        normalized_purcell = purcell_value / self.max_purcell
-        normalized_collection = collection_value / self.max_collection
+        # normalized_purcell = purcell_value / self.max_purcell
+        # normalized_collection = collection_value / self.max_collection
         
         # Balanced scoring
-        score = -(self.weight_purcell * normalized_purcell + self.weight_collection * normalized_collection)
+        score= (-1/purcell_value)**2+(1-collection_value)**2
+        # score = -(self.weight_purcell * normalized_purcell + self.weight_collection * normalized_collection)
         self.all_scores.append((score, purcell_value, collection_value))
 
-        return score, purcell_value, collection_value, seen
+        return score, purcell_value, collection_value
     
     def Universal_Simulation(self,num_modes,chosen_mode):
         
-        
+        # sets geometrical parameters 
         parameters = {
-            "height_cavity": 0.3e-6,
-            "height_substract": 0.25e-6,
-            "n_rings": 5,
-            "radius_mesa": 0.5e-6,
-            "ring_period": 0.5e-6,
-            "duty_cycle": 0.68,
+            "height_cavity": self.parameters["height_cavity"],
+            "height_substrate": self.parameters["height_substrate"],
+            "n_rings": self.parameters["n_rings"],
+            "radius_mesa": self.parameters["radius_mesa"],
+            "ring_period": self.parameters["ring_period"],
+            "duty_cycle": self.parameters["duty_cycle"],
             "material": self.material_name
         }
+        
+        #updates parameters
         Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
         
+        #runs the FDE simulation and receives the effective refractive index
         neff_1=Universal_Design.run_simulation_FDE(self,self.target_wavelength,num_modes,chosen_mode)
+        
         # Calculate the ring period based on the target wavelength and effective index
         ring_period = self.target_wavelength / neff_1
         radius_mesa=ring_period
+        
+        #updates parameters
         parameters = {
-            "height_cavity": 0.3e-6,
-            "height_substract": 0.25e-6,
-            "n_rings": 5,
+            "height_cavity": self.parameters["height_cavity"],
+            "height_substrate": self.parameters["height_substrate"],
+            "n_rings": self.parameters["n_rings"],
             "radius_mesa": radius_mesa,
             "ring_period": ring_period,
-            "duty_cycle": 0.68,
+            "duty_cycle": self.parameters["duty_cycle"],
             "material": self.material_name
         }
         Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
-        #calculating alfa
-        current_wavelength, _ , _ ,  real_index = Universal_Design.run_simulation_FDTD(self)
+        
+        #Calculating alfa
+        current_wavelength, _ , _ ,  real_index = Universal_Design.run_simulation_FDTD(self,universal=True)
         alfa=self.target_wavelength/current_wavelength
 
-        #calculating betas
+        #Calculating betas
         beta_1=real_index[0]/real_index[2]
         beta_2=real_index[1]/real_index[3]
 
         #updating parameters
         height_cavity_updated=self.parameters["height_cavity"]*alfa*beta_1
-        height_substract_updated=self.parameters["height_substract"]*alfa*beta_2
+        height_substrate_updated=self.parameters["height_substrate"]*alfa*beta_2
         
         
         parameters = {
             "height_cavity": height_cavity_updated,
-            "height_substract": height_substract_updated,
-            "n_rings": 5,
+            "height_substrate": height_substrate_updated,
+            "n_rings": self.parameters["n_rings"],
             "radius_mesa": radius_mesa,
             "ring_period": ring_period,
-            "duty_cycle": 0.68,
+            "duty_cycle": self.parameters["duty_cycle"],
             "material": self.material_name
         }
         Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
-        #calculate gama
         
+        #calculate gama        
         neff_current_gama=Universal_Design.run_simulation_FDE(self,current_wavelength,num_modes,chosen_mode)
         neff_target_gama=Universal_Design.run_simulation_FDE(self,self.target_wavelength,num_modes,chosen_mode)
         gama=neff_current_gama/neff_target_gama
@@ -350,15 +416,14 @@ class Universal_Design:
         ring_period_updated=ring_period*alfa*gama
         radius_mesa_updated=ring_period_updated
 
-        #Run final with full parameters
-        
+        #Sets all the optimal parameters
         parameters = {
             "height_cavity": height_cavity_updated[0][0],
-            "height_substract": height_substract_updated[0][0],
-            "n_rings": 5,
+            "height_substrate": height_substrate_updated[0][0],
+            "n_rings": self.parameters["n_rings"],
             "radius_mesa": radius_mesa_updated[0][0],
             "ring_period": ring_period_updated[0][0],
-            "duty_cycle": 0.68,
+            "duty_cycle": self.parameters["duty_cycle"],
             "material": self.material_name
         }
         Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
@@ -369,7 +434,9 @@ class Universal_Design:
         # print(f"Maximum Purcell Factor: {purcell_max_value}")
         # print(f"Collection Efficiency at Resonance: {collection_max_value}")
 
-        # print("\n=================================\n")   
+        # print("\n=================================\n")  
+        
+        # prints results of optimization
         print("\n===== Optimization Results =====")
         print(f"α (Scaling Factor): {alfa}")
         print(f"β₁ (Cavity Material Correction): {beta_1[0][0]}")
@@ -378,7 +445,7 @@ class Universal_Design:
 
         print("\n===== Updated Parameters =====")
         print(f"Updated Cavity Height: {height_cavity_updated[0][0]*1e6} µm")
-        print(f"Updated Substrate Height: {height_substract_updated[0][0]*1e6} µm")
+        print(f"Updated Substrate Height: {height_substrate_updated[0][0]*1e6} µm")
         print(f"Updated Ring Period: {ring_period_updated[0][0]*1e6} µm")
         print(f"Updated Mesa Radius: {radius_mesa_updated[0][0]*1e6} µm")
         print("Duty Cycle:", self.parameters["duty_cycle"])
@@ -390,8 +457,7 @@ class Universal_Design:
             return None
         
         params_uni_design = self.parameters
-        change_in_param = 0.05
-        change_in_ring = 1
+
         
         # Filter out fixed parameters before defining optimization space
         param_space = []
@@ -400,14 +466,21 @@ class Universal_Design:
         for param, value in params_uni_design.items():
             if param in self.fixed_parameters:
                 continue  # Skip fixed parameters, they shouldn't be optimized
+            
         
             if not isinstance(value, (int, float)):  # Skip non-numeric parameters
                 continue
+            
+            if self.holes is False:
+                if param=="hole_diameter" or param=="spacing":
+                    continue
         
             if param == "n_rings":
-                param_space.append(Integer(value - change_in_ring, value + change_in_ring, name=param))
+                param_space.append(Integer(value - self.change_in_ring, value + self.change_in_ring, name=param))
+            elif param == "ring_period" or param == "radius_mesa" or param=="duty_cycle": #or param == "hole_diameter" or param == "spacing":
+                param_space.append(Real(value * (1 - 0.05), value * (1 + 0.05), name=param))
             else:
-                param_space.append(Real(value * (1 - change_in_param), value * (1 + change_in_param), name=param))
+                param_space.append(Real(value * (1 - self.change_in_param), value * (1 + self.change_in_param), name=param))
         
             param_names.append(param)  # Keep track of optimized parameter names
         
@@ -432,45 +505,44 @@ class Universal_Design:
         
             Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
         
-            score, purcell, collection, seen = Universal_Design.run_simulation_FDTD(self, bayesian=True)
-            print ("\n this is seen",seen)
-            print ("\n this is suggested params",suggested_params)
-            if seen == 0:
-                optimizer.tell(suggested_params, score)
-            else:
-                # Reset optimizer after max_purcell is updated
-                updated_scores = []
-                print(self.all_scores)
-                for s, p, c in self.all_scores:
-                    normalized_purcell = p / self.max_purcell
-                    normalized_collection = c / self.max_collection
-                    # Balanced scoring
-                    score = -(self.weight_purcell * normalized_purcell + self.weight_collection * normalized_collection)
-                    updated_scores.append((score, p, c))
-                    print(updated_scores, self.max_purcell)
+            score, purcell, collection = Universal_Design.run_simulation_FDTD(self, bayesian=True)
+            optimizer.tell(suggested_params, score)
+            
+            # if seen == 0:
+            #     optimizer.tell(suggested_params, score)
+            # else:
+            #     # Reset optimizer after max_purcell is updated
+            #     updated_scores = []
+            #     for s, p, c in self.all_scores:
+            #         normalized_purcell = p / self.max_purcell
+            #         normalized_collection = c / self.max_collection
+            #         # Balanced scoring
+            #         score = -(self.weight_purcell * normalized_purcell + self.weight_collection * normalized_collection)
+            #         updated_scores.append((score, p, c))
                  
-                self.all_scores=updated_scores    
-                # Reinitialize optimizer with updated parameter space
-                optimizer = Optimizer(dimensions=param_space, acq_func="gp_hedge", n_initial_points=5, random_state=42)
+            #     self.all_scores=updated_scores    
+            #     # Reinitialize optimizer with updated parameter space
+            #     optimizer = Optimizer(dimensions=param_space, acq_func="gp_hedge", n_initial_points=5, random_state=42)
                 
-                # Tell the optimizer about the new scores with their respective parameters
-                for idx, (score, p, c) in enumerate(updated_scores):
-                    optimizer.tell(all_parameter_suggestions[idx], score)  # Map score to corresponding parameters
+            #     # Tell the optimizer about the new scores with their respective parameters
+            #     for idx, (score, p, c) in enumerate(updated_scores):
+            #         optimizer.tell(all_parameter_suggestions[idx], score)  # Map score to corresponding parameters
                 
                 
-                
+            show_score=1/score  
             # Print iteration details
             log_entry = (
                 f"Iteration {i+1}/{n_iterations}: "
                 f"Params = {parameters}, "
                 f"Purcell Factor = {purcell:.6f}, "
                 f"Collection Efficiency = {collection:.6f}, "
-                f"Score = {-score:.6f}\n"
+                f"Score = {show_score:.2f}\n"
             )
             print(log_entry, end="")
         
         # Get best parameters
         best_index = np.argmin([s[0] for s in self.all_scores])
+        
         best_params = optimizer.Xi[best_index]
         best_score, best_purcell, best_collection = self.all_scores[best_index]
         
@@ -481,9 +553,15 @@ class Universal_Design:
         # Print final best parameters including fixed ones
         print("\nBest Parameters Found (including fixed ones):")
         for param, value in final_parameters.items():
-            print(f"{param}: {value:.12f}")
-        
-        print(f"Best Score: {-best_score:.6f}")
+            if param=="n_rings":
+                print(f"{param}: {value:.0f}")
+            
+            elif param=="duty_cycle":
+                print(f"{param}: {value:.3f}")
+            else:
+                print(f"{param}: {value*10e8:.3f}nm")
+        show_best_score=1/best_score
+        print(f"Best Score: {show_best_score:.6f}")
         print(f"Best Purcell Factor: {best_purcell:.6f}")
         print(f"Best Collection Efficiency: {best_collection:.6f}")
         
@@ -492,39 +570,53 @@ class Universal_Design:
 
 
 class LumericalFDTDSetup:
-    def __init__(self, folder,material_name,cavity_file, target_wv):
+    def __init__(self, folder,material_name,layer_name,materials_file, target_wv, layer, holes):
         """
         Initializes the Lumerical FDTD setup with the specified cavity material.
         """
         
+        cavity_file=[materials_file[0],materials_file[1]]
+        layer_file=[materials_file[2],materials_file[3]]
         self.parameters = {
-            "duty_cycle": 0.68,
+            "duty_cycle": 0.7,
             "r_ring": 300e-9,
             "alfa": 1.0,
             "r_circle": 500e-9,
             "height": 220e-9,
             "n_rings": 5,
             "material": "cavity_material",
-            "height_substract": 250e-9
+            "height_substrate": 250e-9,
+            "hole_diameter": 135e-9,
+            "spacing": 210e-9 
         }
         self.fdtd = lumapi.FDTD()  # Connect to Lumerical FDTD
         self.fde= lumapi.MODE() # Connect to Lumerical FDE
         
+        self.want_layer=layer
+        self.holes=holes
         self.target_wv=target_wv
         self.anisotropic=None
-        self.material_name=material_name
+        self.cavity_name=material_name
+        self.layer_name=layer_name
         self.cavity_material = self.create_material_file(folder,material_name,cavity_file)
-
+        self.layer_material = self.create_material_file(folder,layer_name,layer_file)
+        
         
     def setup_simulation_fdtd(self,folder,file):
         """
         Sets up the entire simulation in Lumerical FDTD.
         """
         solver="FDTD"
-        self._add_material(solver)
+        self._add_material(solver,self.cavity_material,self.cavity_name)
+        self._add_material(solver,self.layer_material,self.layer_name)
+        self.fdtd.setmaterial(self.layer_name, "color", np.array([0, 0, 1, 1]))
         self._setup_cavity(solver)
-        self._setup_substract(solver)
+        if self.want_layer is True:
+            self._setup_layer(solver)
+        self._setup_substrate(solver)
         self._setup_analysis(solver)
+        if self.want_layer is True:
+            self._setup_mesh(solver)
         self.save_simulation(folder,file,solver)
         print("Lumerical FDTD setup completed successfully!")
     
@@ -533,26 +625,29 @@ class LumericalFDTDSetup:
         Sets up the entire simulation in Lumerical FDTD.
         """
         solver="FDE"
-        self._add_material(solver)
+        self._add_material(solver,self.cavity_material,self.cavity_name)
+        self._add_material(solver,self.layer_material,self.layer_name)
+        self.fde.setmaterial(self.layer_name, "color", np.array([0, 0, 1, 1]))
         self._setup_cavity(solver)
-        self._setup_substract(solver)
+        if self.want_layer is True:
+            self._setup_layer(solver)
+        self._setup_substrate(solver)
         self.fde.addfde()
+        if self.want_layer is True:
+            self._setup_mesh(solver)
         self.save_simulation(folder,file,solver)
         print("Lumerical FDTD setup completed successfully!")
 
     
-    def _add_material(self,solver):
+    def _add_material(self,solver,filename,my_material):
         if solver=="FDTD":
             solver=self.fdtd
         elif solver=="FDE":
             solver=self.fde
         else:
             raise ValueError("Expected 'FDTD' or 'FDE'")
-        
-        filename=self.cavity_material
 
         # Extract the file name without the extension
-        my_material = self.material_name
         self.parameters["material"]=my_material
         
         if self.anisotropic is False:
@@ -595,20 +690,84 @@ class LumericalFDTDSetup:
         """
         solver.addstructuregroup()
         solver.set("name", "cavity")  # Name the structure group
+        
+        if self.holes is False:
+            # Execute the script in Lumerical via Python API
+            solver.adduserprop("duty_cycle",0, self.parameters["duty_cycle"])
+            solver.adduserprop("r_ring",2, self.parameters["r_ring"])
+            solver.adduserprop("alfa",0, self.parameters["alfa"])
+            solver.adduserprop("r_circle",2, self.parameters["r_circle"])
+            solver.adduserprop("height",2, self.parameters["height"])
+            solver.adduserprop("n_rings",0, self.parameters["n_rings"])
+            solver.adduserprop("material",1, self.parameters["material"])
+        
+            # Define cavity structure script
+            solver.set("script", self._get_lum_script_cavity())
+        
+        else:
+            solver.adduserprop("ring_period",2, self.parameters["r_ring"])
+            solver.adduserprop("radius_mesa",2, self.parameters["r_circle"])
+            solver.adduserprop("height",2, self.parameters["height"])
+            solver.adduserprop("n_rings",0, self.parameters["n_rings"])
+            solver.adduserprop("material",1, self.parameters["material"])
+            solver.adduserprop("hole_diameter",2, self.parameters["hole_diameter"])
+            solver.adduserprop("spacing",2, self.parameters["spacing"])
+            
+            # Define cavity structure script
+            solver.set("script", self._get_lum_script_cavity_holes())
+        
+    
+    def _setup_layer(self,solver):
+        if solver=="FDTD":
+            solver=self.fdtd
+        elif solver=="FDE":
+            solver=self.fde
+        else:
+            raise ValueError("Expected 'FDTD' or 'FDE'")
+        
+        """
+        Sets up the cavity structure in Lumerical FDTD.
+        """
+        solver.addstructuregroup()
+        solver.set("name", "layer")  # Name the structure group
     
         # Execute the script in Lumerical via Python API
+        # solver.set("z", 0.2e-6)
         solver.adduserprop("duty_cycle",0, self.parameters["duty_cycle"])
         solver.adduserprop("r_ring",2, self.parameters["r_ring"])
         solver.adduserprop("alfa",0, self.parameters["alfa"])
         solver.adduserprop("r_circle",2, self.parameters["r_circle"])
-        solver.adduserprop("height",2, self.parameters["height"])
+        solver.adduserprop("height",2, 0.002e-6)
         solver.adduserprop("n_rings",0, self.parameters["n_rings"])
-        solver.adduserprop("material",1, self.parameters["material"])
-    
-        # Define cavity structure script
+        solver.adduserprop("material",1, self.layer_name)
+        
+        # Define layer structure script
         solver.set("script", self._get_lum_script_cavity())
+        
+    def _setup_mesh(self,solver):
+        if solver=="FDTD":
+            solver=self.fdtd
+        elif solver=="FDE":
+            solver=self.fde
+        else:
+            raise ValueError("Expected 'FDTD' or 'FDE'")
+        
+        """
+        Sets up the overide mesh around the layer.
+        """
+        solver.addmesh()
+        # enable in Z direction and disable in X,Y directions
+        solver.set("override x mesh",0)
+        solver.set("override y mesh",0)
+        solver.set("override z mesh",1)
+        solver.set("set maximum mesh step",1)
+        solver.set("dz",0.5e-9)
+        solver.set("based on a structure",1)
+        solver.set("structure", "layer")
+        
+        
     
-    def _setup_substract(self,solver):
+    def _setup_substrate(self,solver):
         
         if solver=="FDTD":
             solver=self.fdtd
@@ -618,21 +777,21 @@ class LumericalFDTDSetup:
             raise ValueError("Expected 'FDTD' or 'FDE'")
         
         """
-        Sets up the substract structure group.
+        Sets up the substrate structure group.
         """
         solver.addstructuregroup()
-        solver.set("name", "substract")
+        solver.set("name", "substrate")
         
-        # Add substract parameters
-        solver.adduserprop("big_radius", 2, 5e-6)
-        solver.adduserprop("h_sio2", 2, self.parameters["height_substract"])
+        # Add substrate parameters
+        solver.adduserprop("big_radius", 2, 30e-6)
+        solver.adduserprop("h_sio2", 2, self.parameters["height_substrate"])
         solver.adduserprop("h_au", 2, 0.15e-6)
-        solver.adduserprop("h_si", 2, 2e-6)
+        solver.adduserprop("h_si", 2, 30e-6)
         solver.adduserprop("alfa", 0, 1)
         solver.adduserprop("material", 1, "SiO2 (Glass) - Palik")
         
-        # Define substract structure
-        solver.set("script", self._get_lum_script_substract())
+        # Define substrate structure
+        solver.set("script", self._get_lum_script_substrate())
     
     def _setup_analysis(self,solver):
         
@@ -824,18 +983,88 @@ class LumericalFDTDSetup:
             set("z max",height);    
             set("material",material);
         }
+        
+	finish_radius=r_circle+i=n_rings*r_ring;
+	# add background Ring
+	addring;
+	set("name","background");
+        set("x",0);
+        set("y",0);
+        set("inner radius",finish_radius);
+        set("outer radius",finish_radius+10e-6);
+        set("z min", 0);
+        set("z max",height);    
+        set("material",material);
         """
-    
-    def _get_lum_script_substract(self):
-        """Returns the Lumerical script for the substract setup."""
+    def _get_lum_script_cavity_holes(self):
+        """Returns the Lumerical script for the cavity setup."""
         return """
         deleteall;
-        # Lumerical script to create substract
+        # Parameters
+        hole_diameter = hole_diameter;       # 135 nm hole diameter
+        hole_radius = hole_diameter/2;
+        spacing = spacing;             # 210 nm spacing between holes
+        thickness = height;          # thickness of the hBN layer
+        
+        # Ring settings
+        r_start = radius_mesa;             # starting radius (0.5 micron)             
+        r_step = ring_period; 		# step between rings (0.5 micron)
+        r_end = n_rings*r_step;               # ending radius (2.0 micron)
+        
+        radius_hBN = r_end + r_step;
+        
+        # Create the main hBN disk
+        addcircle;
+        set("name", "hBN_disk");
+        set("material", material);       # Make sure you have an hBN material defined
+        set("x", 0);
+        set("y", 0);
+        set("z", 0);
+        set("radius", radius_hBN);
+        set("z min", 0);
+        set("z max", thickness);
+        
+        # Loop over rings
+        ring_index = 1;
+        for (r = r_start:r_step:r_end) {
+            
+            circumference = 2*pi*r;
+            n_holes = round(circumference/spacing);
+            
+            ?("Ring " + num2str(ring_index) + " at r = " + num2str(r/1e-6) + " um, " + num2str(n_holes) + " holes");
+        
+            # Add holes on this ring
+            for (i = 1:n_holes) {
+                langle = 2*pi*(i-1)/n_holes;
+                x = r*cos(langle);
+                y = r*sin(langle);
+                
+                addcircle;
+                set("name", "hole_r" + num2str(ring_index) + "_" + num2str(i));
+                # set("material", "<Object defined dielectric>");
+                set("x", x);
+                set("y", y);
+                set("z", 0);
+                set("radius", hole_radius);
+                set("z min", 0);
+                set("z max", thickness);
+            }
+            
+            ring_index = ring_index + 1;
+        }
+
+
+        """
+    def _get_lum_script_substrate(self):
+        """Returns the Lumerical script for the substrate setup."""
+        return """
+        deleteall;
+        # Lumerical script to create substrate
         deleteall;
 
         h_sio2=h_sio2*alfa;
         addcircle;
-        set("radius", big_radius*3/4);
+        set("radius", big_radius);
         set("z min", -h_sio2);
         set("z max",0);
         set("material",material);

@@ -345,7 +345,7 @@ class Cluster:
         
         jobname = os.path.basename(filename).split('.')[0]
         
-        cmd = "tee "+data_path+"/run.sh << EOF\n"
+        cmd = "tee "+data_path+f"/run_{jobname}.sh << EOF\n"
         cmd+= "# embedded options to bsub - start with #BSUB\n"
         cmd+= "#!/bin/sh\n"
         cmd+= "#BSUB -J "+jobname+"\n"
@@ -368,7 +368,7 @@ class Cluster:
         cmd+='EOF'
         self.sshcli.exec_command(cmd)
         
-        remote_script = f"{data_path}/run.sh"
+        remote_script = f"{data_path}/run_{jobname}.sh"
         
     
         execute = f"/lsf/10.1/linux3.10-glibc2.17-x86_64/bin/bsub < {remote_script}"
