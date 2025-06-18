@@ -22,7 +22,7 @@ C = 299792458  # Speed of light
 
 
 class Universal_Design:
-    def __init__(self, filenameFDTD,filenameFDE, target_wavelength, dipole_height, local, run, username, host, fixed_parameters, launch, material_name,holes):
+    def __init__(self, filenameFDTD,filenameFDE, target_wavelength, dipole_height, local, run, username, host, fixed_parameters, launch, material_name,holes,angle):
         self.filename_FDTD = filenameFDTD
         self.filename_FDE= filenameFDE
         self.local = local
@@ -30,7 +30,8 @@ class Universal_Design:
         self.material_name=material_name
         self.dipole_height=dipole_height
         self.holes=holes
-        
+        self.angle=angle
+
         self.weight_purcell = 0.5
         self.weight_collection = 0.5
         self.max_purcell = 3
@@ -42,12 +43,12 @@ class Universal_Design:
         
         # Default parameters
         self.parameters = {
-            "height_cavity": 352.73e-9,
-            "height_substrate": 0.210e-6,
-            "n_rings": 4,
-            "radius_mesa": 444.31e-9,
-            "ring_period": 417.98e-9,
-            "duty_cycle": 0.725,
+            "height_cavity": 0.3516e-6,
+            "height_substrate": 0.21e-6,
+            "n_rings": 5,
+            "radius_mesa": 0.4443e-6,
+            "ring_period": 0.4179e-6,
+            "duty_cycle": 0.7,
             "material": material_name,
             "hole_diameter":0.135e-6 ,
             "spacing": 0.210e-6 
@@ -55,7 +56,7 @@ class Universal_Design:
         
         self.target_wavelength = target_wavelength
         self.step_wavelength = 0.100e-6
-        self.step_universal = 0.1e-6
+        self.step_universal = 0.100e-6
         self.wavelengths = (
             self.target_wavelength,
             self.target_wavelength - self.step_wavelength,
@@ -66,26 +67,26 @@ class Universal_Design:
         
         self.fixed_parameters = fixed_parameters  # Will store fixed parameters
         
-    def set_parameters(self, new_parameters, fixed_parameters=None):
+    def set_parameters(self, new_parameters=None):
         """
         Update parameters, respecting the fixed ones.
-        
+    
         :param new_parameters: Dictionary of parameters to update
         :param fixed_parameters: Dictionary of parameters to fix (optional)
         """
-        # If fixed_parameters is provided, store them as fixed
-        if fixed_parameters is not None:
-            for key, value in fixed_parameters.items():
-                if key in self.parameters:
-                    self.fixed_parameters[key] = value  # Mark as fixed
-                    self.parameters[key] = value  # Fix the value of the parameter
-
-        # Now update parameters, respecting the fixed ones
+        if new_parameters is None:
+            new_parameters = {}
+    
+        # Store fixed parameters and set their values
+        for key, value in self.fixed_parameters.items():
+            if key in self.parameters:
+                self.parameters[key] = value
+    
+        # Update non-fixed parameters
         for key, value in new_parameters.items():
             if key in self.parameters and key not in self.fixed_parameters:
                 self.parameters[key] = value
-            #elif key in self.fixed_parameters:
-                #print(f"Parameter '{key}' is fixed and cannot be updated.")
+
                                
     def run_simulation_FDE(self,target_wv,num_modes,chosen_mode):
         #Open the Lumerical MODE simulation file
@@ -93,6 +94,8 @@ class Universal_Design:
         
         # Switch to layout mode to modify structure parameters
         fde.switchtolayout()
+        
+        self.set_parameters()
         
         # Set the height of the cavity layer
         fde.setnamed("cavity", "height", self.parameters["height_cavity"])
@@ -150,65 +153,74 @@ class Universal_Design:
         fdtd = lumapi.FDTD(filename=self.filename_FDTD)
         fdtd.switchtolayout()
         
-        h_source = self.dipole_height
-        
         try:
-            # Set simulation parameters without holes
-            fdtd.setnamed("cavity", "height", self.parameters["height_cavity"])
-            fdtd.setnamed("cavity", "r_ring", self.parameters["ring_period"])
-            fdtd.setnamed("cavity", "r_circle", self.parameters["radius_mesa"])
-            fdtd.setnamed("cavity", "duty_cycle", self.parameters["duty_cycle"])
-            fdtd.setnamed("cavity", "n_rings", self.parameters["n_rings"])
-            fdtd.setnamed("cavity", "material", self.parameters["material"])
+            self.set_parameters()
+            
+            if self.dipole_height == None:
+                h_source=self.parameters["height_cavity"]/2
+            else:
+                h_source = self.dipole_height
+            
+            try:
+                # Set simulation parameters without holes
+                fdtd.setnamed("cavity", "height", self.parameters["height_cavity"])
+                fdtd.setnamed("cavity", "r_ring", self.parameters["ring_period"])
+                fdtd.setnamed("cavity", "r_circle", self.parameters["radius_mesa"])
+                fdtd.setnamed("cavity", "duty_cycle", self.parameters["duty_cycle"])
+                fdtd.setnamed("cavity", "n_rings", self.parameters["n_rings"])
+                fdtd.setnamed("cavity", "material", self.parameters["material"])
+                
+            except:
+                pass
+            try:
+                # Set simulation parameters with holes
+                fdtd.setnamed("cavity", "height", self.parameters["height_cavity"])
+                fdtd.setnamed("cavity", "ring_period", self.parameters["ring_period"])
+                fdtd.setnamed("cavity", "radius_mesa", self.parameters["radius_mesa"])
+                fdtd.setnamed("cavity", "n_rings", self.parameters["n_rings"])
+                fdtd.setnamed("cavity", "material", self.parameters["material"])
+                fdtd.setnamed("cavity", "hole_diameter", self.parameters["hole_diameter"])
+                fdtd.setnamed("cavity", "spacing", self.parameters["spacing"])
+            except:
+                pass
+            try:
+                fdtd.setnamed("layer", "z", h_source-0.001e-6)
+                fdtd.setnamed("layer", "r_ring", self.parameters["ring_period"])
+                fdtd.setnamed("layer", "r_circle", self.parameters["radius_mesa"])
+                fdtd.setnamed("layer", "duty_cycle", self.parameters["duty_cycle"])
+                fdtd.setnamed("layer", "n_rings", self.parameters["n_rings"])
+            except:
+                pass
+            
+            fdtd.setnamed("cavity", "angle_trench", self.angle)
+            fdtd.setnamed("substrate", "h_sio2", self.parameters["height_substrate"])
+            
+            fdtd.setnamed("source", "z", h_source)
+            
+            fdtd.setnamed("FDTD", "x span", 2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])) + 1e-6)
+            fdtd.setnamed("FDTD", "y span", 2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])) + 1e-6)
+            fdtd.setnamed("FDTD", "z min", -(self.parameters["height_substrate"] + 0.15e-6))
+            fdtd.setnamed("FDTD", "z max", (self.parameters["height_cavity"] + 0.5e-6))
+            fdtd.setnamed("FDTD", "mesh accuracy", accuracy)
+            fdtd.setnamed("FDTD", "pml profile", profile)
+            
+            fdtd.setnamed("analysis group", "z", h_source) #+ 1e-9)
+            fdtd.setnamed("analysis group", "x_span_prof",2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])))
+            fdtd.setnamed("analysis group", "y_span_prof", 2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])))
+            
+            if universal is True:
+                fdtd.setnamed("source", "wavelength start", self.target_wavelength-self.step_universal)
+                fdtd.setnamed("source", "wavelength stop", self.target_wavelength+self.step_universal)
+                fdtd.setglobalsource("wavelength start",self.target_wavelength-self.step_universal)
+                fdtd.setglobalsource("wavelength stop",self.target_wavelength+self.step_universal)
+            else:
+                fdtd.setnamed("source", "wavelength start", self.wavelengths[1])
+                fdtd.setnamed("source", "wavelength stop", self.wavelengths[2])
+                fdtd.setglobalsource("wavelength start",self.wavelengths[1])
+                fdtd.setglobalsource("wavelength stop",self.wavelengths[2])
+        
         except:
             pass
-        try:
-            # Set simulation parameters with holes
-            fdtd.setnamed("cavity", "height", self.parameters["height_cavity"])
-            fdtd.setnamed("cavity", "ring_period", self.parameters["ring_period"])
-            fdtd.setnamed("cavity", "radius_mesa", self.parameters["radius_mesa"])
-            fdtd.setnamed("cavity", "n_rings", self.parameters["n_rings"])
-            fdtd.setnamed("cavity", "material", self.parameters["material"])
-            fdtd.setnamed("cavity", "hole_diameter", self.parameters["hole_diameter"])
-            fdtd.setnamed("cavity", "spacing", self.parameters["spacing"])
-        except:
-            pass
-        try:
-            fdtd.setnamed("layer", "z", h_source-0.001e-6)
-            fdtd.setnamed("layer", "r_ring", self.parameters["ring_period"])
-            fdtd.setnamed("layer", "r_circle", self.parameters["radius_mesa"])
-            fdtd.setnamed("layer", "duty_cycle", self.parameters["duty_cycle"])
-            fdtd.setnamed("layer", "n_rings", self.parameters["n_rings"])
-        except:
-            pass
-        
-        fdtd.setnamed("substrate", "h_sio2", self.parameters["height_substrate"])
-        
-        fdtd.setnamed("source", "z", h_source)
-        
-        fdtd.setnamed("FDTD", "x span", 2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])) + 1e-6)
-        fdtd.setnamed("FDTD", "y span", 2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])) + 1e-6)
-        fdtd.setnamed("FDTD", "z min", -(self.parameters["height_substrate"] + 0.15e-6))
-        fdtd.setnamed("FDTD", "z max", (self.parameters["height_cavity"] + 0.5e-6))
-        fdtd.setnamed("FDTD", "mesh accuracy", accuracy)
-        fdtd.setnamed("FDTD", "pml profile", profile)
-        
-        fdtd.setnamed("analysis group", "z", h_source) #+ 1e-9)
-        fdtd.setnamed("analysis group", "x_span_prof",2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])))
-        fdtd.setnamed("analysis group", "y_span_prof", 2 * (self.parameters["radius_mesa"] + (self.parameters["ring_period"] * self.parameters["n_rings"])))
-        
-        if universal is True:
-            fdtd.setnamed("source", "wavelength start", self.target_wavelength-self.step_universal)
-            fdtd.setnamed("source", "wavelength stop", self.target_wavelength+self.step_universal)
-            fdtd.setglobalsource("wavelength start",self.target_wavelength-self.step_universal)
-            fdtd.setglobalsource("wavelength stop",self.target_wavelength+self.step_universal)
-        else:
-            fdtd.setnamed("source", "wavelength start", self.wavelengths[1])
-            fdtd.setnamed("source", "wavelength stop", self.wavelengths[2])
-            fdtd.setglobalsource("wavelength start",self.wavelengths[1])
-            fdtd.setglobalsource("wavelength stop",self.wavelengths[2])
-        
-        
         # Runs the simularion
         if self.run:
             if not self.local:
@@ -255,7 +267,7 @@ class Universal_Design:
            
         # Extract wavelength data (assuming the first column contains the wavelength)
         wavelengths = purcell_factor["lambda"]  # Extract wavelength in meters
-        wavelengths_nm=wavelengths*1e-9
+        wavelengths_nm=wavelengths*1e9
         
         # Extract Purcell factor and collection efficiency data
         purcell_values = purcell_factor["Purcell"]  # Extract Purcell factor
@@ -288,11 +300,16 @@ class Universal_Design:
         max_index = np.argmax(purcell_values)
         current_wavelength = wavelengths[max_index]
         
-        # gets the real and imaginary part of the refractive index of the cavity and substrate for the current and target wavelength
-        real_index_current_cavity=np.real(fdtd.getindex(self.material_name,C/current_wavelength))
-        real_index_target_cavity=np.real(fdtd.getindex(self.material_name,C/self.target_wavelength))
-        real_index_current_substrate=np.real(fdtd.getindex(substrate_material,C/current_wavelength))
-        real_index_target_substrate=np.real(fdtd.getindex(substrate_material,C/self.target_wavelength))
+        try:
+            # gets the real and imaginary part of the refractive index of the cavity and substrate for the current and target wavelength
+            real_index_current_cavity=np.real(fdtd.getindex(self.material_name,C/current_wavelength))
+            real_index_target_cavity=np.real(fdtd.getindex(self.material_name,C/self.target_wavelength))
+            real_index_current_substrate=np.real(fdtd.getindex(substrate_material,C/current_wavelength))
+            real_index_target_substrate=np.real(fdtd.getindex(substrate_material,C/self.target_wavelength))
+            
+        except:
+            pass
+        
         fdtd.close()
         
         #prints results of the simulation
@@ -362,7 +379,7 @@ class Universal_Design:
         }
         
         #updates parameters
-        Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
+        Universal_Design.set_parameters(self, parameters)
         
         #runs the FDE simulation and receives the effective refractive index
         neff_1=Universal_Design.run_simulation_FDE(self,self.target_wavelength,num_modes,chosen_mode)
@@ -381,7 +398,7 @@ class Universal_Design:
             "duty_cycle": self.parameters["duty_cycle"],
             "material": self.material_name
         }
-        Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
+        Universal_Design.set_parameters(self, parameters)
         
         #Calculating alfa
         current_wavelength, _ , _ ,  real_index = Universal_Design.run_simulation_FDTD(self,universal=True)
@@ -405,7 +422,7 @@ class Universal_Design:
             "duty_cycle": self.parameters["duty_cycle"],
             "material": self.material_name
         }
-        Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
+        Universal_Design.set_parameters(self, parameters)
         
         #calculate gama        
         neff_current_gama=Universal_Design.run_simulation_FDE(self,current_wavelength,num_modes,chosen_mode)
@@ -426,7 +443,7 @@ class Universal_Design:
             "duty_cycle": self.parameters["duty_cycle"],
             "material": self.material_name
         }
-        Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
+        Universal_Design.set_parameters(self, parameters)
         # current_wavelength_updated, purcell_max_value, collection_max_value,  _ =Universal_Design.run_simulation_FDTD(self)
                    
         # print("\n===== Final Simulation Results =====")
@@ -478,7 +495,7 @@ class Universal_Design:
             if param == "n_rings":
                 param_space.append(Integer(value - self.change_in_ring, value + self.change_in_ring, name=param))
             elif param == "ring_period" or param == "radius_mesa" or param=="duty_cycle": #or param == "hole_diameter" or param == "spacing":
-                param_space.append(Real(value * (1 - 0.05), value * (1 + 0.05), name=param))
+                param_space.append(Real(value * (1 - 0.1), value * (1 + 0.1), name=param))
             else:
                 param_space.append(Real(value * (1 - self.change_in_param), value * (1 + self.change_in_param), name=param))
         
@@ -503,7 +520,7 @@ class Universal_Design:
             parameters = {param: value for param, value in zip(param_names, suggested_params)}
             parameters.update(self.fixed_parameters)  # Ensure fixed parameters are used
         
-            Universal_Design.set_parameters(self, parameters, self.fixed_parameters)
+            Universal_Design.set_parameters(self, parameters)
         
             score, purcell, collection = Universal_Design.run_simulation_FDTD(self, bayesian=True)
             optimizer.tell(suggested_params, score)
@@ -566,11 +583,11 @@ class Universal_Design:
         print(f"Best Collection Efficiency: {best_collection:.6f}")
         
         # Ensure final best parameters are set correctly
-        Universal_Design.set_parameters(self, final_parameters, self.fixed_parameters)
+        Universal_Design.set_parameters(self, final_parameters)
 
 
 class LumericalFDTDSetup:
-    def __init__(self, folder,material_name,layer_name,materials_file, target_wv, layer, holes):
+    def __init__(self, folder,material_name,layer_name,materials_file, target_wv, layer, holes, angle):
         """
         Initializes the Lumerical FDTD setup with the specified cavity material.
         """
@@ -592,6 +609,7 @@ class LumericalFDTDSetup:
         self.fdtd = lumapi.FDTD()  # Connect to Lumerical FDTD
         self.fde= lumapi.MODE() # Connect to Lumerical FDE
         
+        self.angle=angle
         self.want_layer=layer
         self.holes=holes
         self.target_wv=target_wv
@@ -636,7 +654,7 @@ class LumericalFDTDSetup:
         if self.want_layer is True:
             self._setup_mesh(solver)
         self.save_simulation(folder,file,solver)
-        print("Lumerical FDTD setup completed successfully!")
+        print("Lumerical FDE setup completed successfully!")
 
     
     def _add_material(self,solver,filename,my_material):
@@ -700,6 +718,11 @@ class LumericalFDTDSetup:
             solver.adduserprop("height",2, self.parameters["height"])
             solver.adduserprop("n_rings",0, self.parameters["n_rings"])
             solver.adduserprop("material",1, self.parameters["material"])
+            solver.adduserprop("theta start",0, 0)
+            solver.adduserprop("theta stop",0, 360)
+            solver.adduserprop("resolution",0, 100)
+            solver.adduserprop("angle_trench",0, self.angle)
+            
         
             # Define cavity structure script
             solver.set("script", self._get_lum_script_cavity())
@@ -957,45 +980,187 @@ class LumericalFDTDSetup:
     def _get_lum_script_cavity(self):
         """Returns the Lumerical script for the cavity setup."""
         return """
-        deleteall;
-        # Lumerical script to create cavity
+
+# Lumerical script to create cavity
         
-        deleteall;
-        w_ring=duty_cycle*r_ring;
-        w_ring=w_ring*alfa;
-        r_ring=r_ring*alfa;
-        r_circle=r_circle*alfa;
-        height=height*alfa;
-        addcircle;
-        set("radius",r_circle);
-        set("z min",0);
-        set("z max",height);
-        set("material",material);
+deleteall;
+w_ring=duty_cycle*r_ring;
+w_ring=w_ring*alfa;
+r_ring=r_ring*alfa;
+r_circle=r_circle*alfa;
+height=height*alfa;
+addcircle;
+set("radius",r_circle);
+set("z min",0);
+set("z max",height);
+set("material",material);
+
+# generate pointing outwards toroid
+
+radius=r_circle;
+# simplify variable names by removing spaces
+theta_start = %theta start%;
+theta_stop = %theta stop%;
+
+# USER specifies polygon vertices here. The 3D structure will be created by revolving this shape around Z axis, with a radius R.
+# Note: It is OK, but not necessary to close the polygon
+V=matrix(3,2);
+V(1,1:2) = [0, height];
+V(2,1:2) = [0,  0];
+V(3,1:2) = [height/tan(angle_trench*pi/180), 0];
+
+# plot(pinch(V,2,1)*1e6,pinch(V,2,2)*1e6,"x (um)","y (um)","Polygon outline");   # plot vertices (for debugging)
+
+
+# calculate slice thickness
+th = 4*pi*radius/resolution;  # divide circumference by resolution
+th = th * 1.1;       # scale up thickess slighly. Required when polygon vertices extend beyond zero, which increases the maximum radius.
+
+# if partial revolution, use only a fraction of slices
+resolution=round(resolution*abs(theta_start-theta_stop)/360); 
+
+# Calculate revolution angle vector
+theta = linspace(theta_start*pi/180,theta_stop*pi/180,resolution);
+
+for(i=1:resolution) {
+  addpoly;
+  set("vertices",V);
+  set("first axis","x");
+  set("rotation 1",90);
+  set("second axis","z");
+  set("rotation 2",theta(i)*180/pi);
+  set("x",radius*cos(theta(i)));
+  set("y",radius*sin(theta(i)));
+
+  set("z min",-th/2);
+  set("z max",th/2);
+  set("material",material);
+}
+
+
+
         
-        # Add rings
-        for(i=1:n_rings) {
-            addring;
-            set("x",0);
-            set("y",0);
-            set("inner radius",r_circle+i*r_ring-w_ring);
-            set("outer radius",r_circle+i*r_ring);
-            set("z min", 0);
-            set("z max",height);    
-            set("material",material);
-        }
-        
-	finish_radius=r_circle+i=n_rings*r_ring;
-	# add background Ring
+# Add rings
+for(j=1:n_rings) {
+	inner=r_circle+j*r_ring-w_ring;
+	outer=r_circle+j*r_ring;
 	addring;
-	set("name","background");
         set("x",0);
-        set("y",0);
-        set("inner radius",finish_radius);
-        set("outer radius",finish_radius+10e-6);
-        set("z min", 0);
-        set("z max",height);    
-        set("material",material);
+	set("y",0);
+	set("inner radius",inner);
+	set("outer radius",outer);
+	set("z min", 0);
+	set("z max",height);    
+	set("material",material);
+
+# generate pointing inwards toroid
+
+radius=inner;
+# simplify variable names by removing spaces
+theta_start = %theta start%;
+theta_stop = %theta stop%;
+
+# USER specifies polygon vertices here. The 3D structure will be created by revolving this shape around Z axis, with a radius R.
+# Note: It is OK, but not necessary to close the polygon
+V=matrix(3,2);
+V(1,1:2) = [0, height];
+V(2,1:2) = [0,  0];
+V(3,1:2) = [-height/tan(angle_trench*pi/180), 0];
+
+
+# plot(pinch(V,2,1)*1e6,pinch(V,2,2)*1e6,"x (um)","y (um)","Polygon outline");   # plot vertices (for debugging)
+
+
+# calculate slice thickness
+th = 4*pi*radius/resolution;  # divide circumference by resolution
+th = th * 1.1;       # scale up thickess slighly. Required when polygon vertices extend beyond zero, which increases the maximum radius.
+
+# if partial revolution, use only a fraction of slices
+resolution=round(resolution*abs(theta_start-theta_stop)/360); 
+
+# Calculate revolution angle vector
+theta = linspace(theta_start*pi/180,theta_stop*pi/180,resolution);
+
+for(i=1:resolution) {
+  addpoly;
+  set("vertices",V);
+  set("first axis","x");
+  set("rotation 1",90);
+  set("second axis","z");
+  set("rotation 2",theta(i)*180/pi);
+  set("x",radius*cos(theta(i)));
+  set("y",radius*sin(theta(i)));
+
+  set("z min",-th/2);
+  set("z max",th/2);
+  set("material",material);
+
+}
+
+# generate pointing outwards toroid
+if (j!=n_rings){
+radius=outer;
+# simplify variable names by removing spaces
+theta_start = %theta start%;
+theta_stop = %theta stop%;
+
+# USER specifies polygon vertices here. The 3D structure will be created by revolving this shape around Z axis, with a radius R.
+# Note: It is OK, but not necessary to close the polygon
+V=matrix(3,2);
+V(1,1:2) = [0, height];
+V(2,1:2) = [0,  0];
+V(3,1:2) = [height/tan(angle_trench*pi/180), 0];
+
+# plot(pinch(V,2,1)*1e6,pinch(V,2,2)*1e6,"x (um)","y (um)","Polygon outline");   # plot vertices (for debugging)
+
+
+# calculate slice thickness
+th = 4*pi*radius/resolution;  # divide circumference by resolution
+th = th * 1.1;       # scale up thickess slighly. Required when polygon vertices extend beyond zero, which increases the maximum radius.
+
+# if partial revolution, use only a fraction of slices
+resolution=round(resolution*abs(theta_start-theta_stop)/360); 
+
+# Calculate revolution angle vector
+theta = linspace(theta_start*pi/180,theta_stop*pi/180,resolution);
+
+for(i=1:resolution) {
+  addpoly;
+  set("vertices",V);
+  set("first axis","x");
+  set("rotation 1",90);
+  set("second axis","z");
+  set("rotation 2",theta(i)*180/pi);
+  set("x",radius*cos(theta(i)));
+  set("y",radius*sin(theta(i)));
+
+  set("z min",-th/2);
+  set("z max",th/2);
+  set("material",material);
+  
+}
+
+}
+
+        }
+
+
+
         """
+# finish_radius=r_circle+i=n_rings*r_ring;
+# 	# add background Ring
+# 	addring;
+# 	set("name","background");
+#         set("x",0);
+#         set("y",0);
+#         set("inner radius",finish_radius);
+#         set("outer radius",finish_radius+3e-6);
+#         set("z min", 0);
+#         set("z max",height);    
+#         set("material",material);
+
+
+        
     def _get_lum_script_cavity_holes(self):
         """Returns the Lumerical script for the cavity setup."""
         return """
